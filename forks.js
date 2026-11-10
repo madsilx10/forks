@@ -170,6 +170,9 @@ async function connectAccount({ authToken, ct0, index }) {
     if (step2.status !== 200) throw new Error(`Step 2: dapat ${step2.status}`);
 
     const html = await step2.text();
+    console.log(`${label} DEBUG step2 final URL: ${step2.url}`);
+    console.log(`${label} DEBUG step2 html length: ${html.length}`);
+    console.log(`${label} DEBUG step2 html preview: ${html.slice(0, 300)}`);
 
     // Extract endpoint hints dari HTML/JS
     const endpoints = [...html.matchAll(/["'](\/i\/api\/[^"']+oauth[^"']+)["']/g)].map(m => m[1]);
