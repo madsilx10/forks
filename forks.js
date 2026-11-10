@@ -192,14 +192,24 @@ async function connectAccount({ authToken, ct0, index }) {
       || html.match(/auth_code=([^&"'\s]+)/)?.[1];
 
     if (!authCode) {
-      // Fallback: pakai endpoint /i/api/oauth2/authorize untuk dapat auth_code
+      // GET auth_code dari X API pakai params dari authorizeUrl
+      const urlObj2 = new URL(authorizeUrl);
+      const apiParams = new URLSearchParams({
+        response_type: urlObj2.searchParams.get('response_type') || 'code',
+        client_id: urlObj2.searchParams.get('client_id') || '',
+        redirect_uri: urlObj2.searchParams.get('redirect_uri') || '',
+        scope: urlObj2.searchParams.get('scope') || '',
+        state: urlObj2.searchParams.get('state') || '',
+        code_challenge: urlObj2.searchParams.get('code_challenge') || '',
+        code_challenge_method: urlObj2.searchParams.get('code_challenge_method') || '',
+      });
+
       const apiRes = await fetchFollow(
-        'https://x.com/i/api/oauth2/authorize',
+        `https://x.com/i/api/oauth2/authorize?${apiParams}`,
         {
           followRedirects: false,
           headers: {
             'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
-            'Content-Type': 'application/json',
             'Cookie': `auth_token=${authToken}; ct0=${ct0}`,
             'Referer': authorizeUrl,
             'Origin': 'https://x.com',
@@ -219,11 +229,16 @@ async function connectAccount({ authToken, ct0, index }) {
         store
       );
 
-      const apiJson = await apiRes.json().catch(() => null);
+      const apiText = await apiRes.text();
+      console.log(`${label} DEBUG api status: ${apiRes.status}`);
+      console.log(`${label} DEBUG api response: ${apiText.slice(0, 300)}`);
+
+      let apiJson = null;
+      try { apiJson = JSON.parse(apiText); } catch {}
       authCode = apiJson?.auth_code;
 
       if (!authCode) {
-        throw new Error(`Gagal dapat auth_code dari API (status ${apiRes.status}): ${JSON.stringify(apiJson)}`);
+        throw new Error(`Gagal dapat auth_code (status ${apiRes.status}): ${apiText.slice(0, 200)}`);
       }
     }
 
