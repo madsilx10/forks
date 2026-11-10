@@ -248,7 +248,7 @@ async function connectAccount({ authToken, ct0, index }) {
 
     // POST approve dengan auth_code
     const approveRes = await fetchFollow(
-      'https://x.com/i/api/oauth2/authorize',
+      'https://x.com/i/api/2/oauth2/authorize',
       {
         method: 'POST',
         followRedirects: false,
