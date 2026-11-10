@@ -171,71 +171,90 @@ async function connectAccount({ authToken, ct0, index }) {
 
     const html = await step2.text();
 
-    // ── STEP 2b: POST approve ─────────────────────────────
-    console.log(`${label} Step 2b: POST approve...`);
+    // ── STEP 2b: Ambil auth_code via X internal API ───────
+    console.log(`${label} Step 2b: Approve via X API...`);
     const urlObj = new URL(authorizeUrl);
     const state = urlObj.searchParams.get('state');
-    const clientId = urlObj.searchParams.get('client_id');
-    const codeChallenge = urlObj.searchParams.get('code_challenge');
 
-    // Coba ambil authenticity_token dari HTML
-    const authTokenMatch = html.match(/name="authenticity_token"[^>]*value="([^"]+)"/);
-    const approvalMatch = html.match(/name="approval_code"[^>]*value="([^"]+)"/);
+    // Extract auth_code dari HTML (embedded di JSON/script tag)
+    let authCode = html.match(/"auth_code"\s*:\s*"([^"]+)"/)?.[1]
+      || html.match(/auth_code=([^&"'\s]+)/)?.[1];
 
-    const body = new URLSearchParams({
-      authenticity_token: authTokenMatch?.[1] || '',
-      redirect_uri: 'https://forks.wiki/auth/x/callback',
-      client_id: clientId || '',
-      state: state || '',
-      code_challenge: codeChallenge || '',
-      code_challenge_method: 'S256',
-      scope: 'users.read tweet.read',
-      response_type: 'code',
-      ...(approvalMatch ? { approval_code: approvalMatch[1] } : {})
-    });
+    if (!authCode) {
+      // Fallback: pakai endpoint /i/api/oauth2/authorize untuk dapat auth_code
+      const apiRes = await fetchFollow(
+        'https://x.com/i/api/oauth2/authorize',
+        {
+          followRedirects: false,
+          headers: {
+            'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
+            'Content-Type': 'application/json',
+            'Cookie': `auth_token=${authToken}; ct0=${ct0}`,
+            'Referer': authorizeUrl,
+            'Origin': 'https://x.com',
+            'X-Csrf-Token': ct0,
+            'X-Twitter-Auth-Type': 'OAuth2Session',
+            'X-Twitter-Active-User': 'yes',
+            'X-Twitter-Client-Language': 'en',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+            'Sec-Ch-Ua': '"Mises";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+            'Sec-Ch-Ua-Mobile': '?1',
+            'Sec-Ch-Ua-Platform': '"Android"',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+          }
+        },
+        store
+      );
 
-    const step2b = await fetchFollow(
-      'https://x.com/i/oauth2/authorize',
+      const apiJson = await apiRes.json().catch(() => null);
+      authCode = apiJson?.auth_code;
+
+      if (!authCode) {
+        throw new Error(`Gagal dapat auth_code dari API (status ${apiRes.status}): ${JSON.stringify(apiJson)}`);
+      }
+    }
+
+    console.log(`${label} ✓ Dapat auth_code`);
+
+    // POST approve dengan auth_code
+    const approveRes = await fetchFollow(
+      'https://x.com/i/api/oauth2/authorize',
       {
         method: 'POST',
         followRedirects: false,
-        headers: makeHeaders(authToken, ct0, {
+        headers: {
+          'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
           'Content-Type': 'application/x-www-form-urlencoded',
           'Cookie': `auth_token=${authToken}; ct0=${ct0}`,
-          'Origin': 'https://x.com',
           'Referer': authorizeUrl,
+          'Origin': 'https://x.com',
           'X-Csrf-Token': ct0,
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
+          'X-Twitter-Auth-Type': 'OAuth2Session',
+          'X-Twitter-Active-User': 'yes',
+          'X-Twitter-Client-Language': 'en',
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+          'Sec-Ch-Ua': '"Mises";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+          'Sec-Ch-Ua-Mobile': '?1',
+          'Sec-Ch-Ua-Platform': '"Android"',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
           'Sec-Fetch-Site': 'same-origin',
-        }),
-        body: body.toString(),
+        },
+        body: new URLSearchParams({ approval: 'true', auth_code: authCode }).toString(),
       },
       store
     );
 
-    if (step2b.status === 302) {
-      const loc = step2b.headers.get('location');
-      if (loc?.includes('forks.wiki')) {
-        return await doCallback(store, loc, authToken, ct0, label);
-      }
+    const approveJson = await approveRes.json().catch(() => null);
+    const redirectUri = approveJson?.redirect_uri;
+
+    if (!redirectUri?.includes('forks.wiki')) {
+      throw new Error(`Approve gagal (status ${approveRes.status}): ${JSON.stringify(approveJson)}`);
     }
 
-    // Debug: dump HTML biar keliatan X minta apa
-    const step2bHtml = await step2b.text();
-    const snippet = step2bHtml
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 800);
-    console.log(`${label} DEBUG step2b status=${step2b.status}`);
-    console.log(`${label} DEBUG HTML snippet:\n${snippet}\n`);
-    fs.writeFileSync(`debug_step2b_akun${index}.html`, step2bHtml);
-    console.log(`${label} Full HTML → debug_step2b_akun${index}.html`);
-
-    throw new Error(`POST approve gagal: status ${step2b.status}`);
+    return await doCallback(store, redirectUri, authToken, ct0, label);
 
   } catch (err) {
     console.error(`${label} ❌ ${err.message}`);
