@@ -270,7 +270,7 @@ async function connectAccount({ authToken, ct0, index }) {
           'Sec-Fetch-Mode': 'cors',
           'Sec-Fetch-Site': 'same-origin',
         },
-        body: new URLSearchParams({ approval: 'true', auth_code: authCode }).toString(),
+        body: new URLSearchParams({ approval: 'true', code: authCode }).toString(),
       },
       store
     );
