@@ -146,10 +146,25 @@ async function connectX(authToken, ct0, label, store) {
   // Step 2: GET authorize
   const s2 = await req(authUrl, {
     followRedirects: false,
-    headers: xHeaders(authToken, ct0, {
-      'Referer': 'https://forks.wiki/', 'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
-      'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'cross-site',
-    })
+    headers: {
+      'Authorization': `Bearer ${BEARER}`,
+      'Cookie': `auth_token=${authToken}; ct0=${ct0}`,
+      'X-Csrf-Token': ct0,
+      'X-Twitter-Auth-Type': 'OAuth2Session',
+      'X-Twitter-Active-User': 'yes',
+      'X-Twitter-Client-Language': 'en',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Referer': 'https://forks.wiki/',
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+      'Sec-Ch-Ua': '"Mises";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+      'Sec-Ch-Ua-Mobile': '?1',
+      'Sec-Ch-Ua-Platform': '"Android"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'cross-site',
+      'Upgrade-Insecure-Requests': '1',
+    }
   }, store);
 
   if (s2.status === 302) {
