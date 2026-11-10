@@ -279,6 +279,11 @@ async function doCallback(store, callbackUrl, label) {
   return true;
 }
 
+// ─── TASK HELPER ──────────────────────────────────────────
+function isDone(tasks, taskId) {
+  return tasks?.find(t => t.id === taskId)?.completedAt != null;
+}
+
 // ─── FORKS.WIKI API ───────────────────────────────────────
 async function forksMe(store) {
   const r = await req('https://forks.wiki/api/me', { headers: forksHeaders() }, store);
@@ -404,23 +409,25 @@ async function postTweet(authToken, ct0, text, quoteTweetId = null, replyToTweet
     body: JSON.stringify({
       variables,
       features: {
-        responsive_web_graphql_exclude_directive_enabled: true,
-        verified_phone_label_enabled: false,
-        responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
-        responsive_web_graphql_timeline_navigation_enabled: true,
-        tweetypie_unmention_optimization_enabled: true,
+        premium_content_api_read_enabled: false,
+        communities_web_enable_tweet_community_results_fetch: true,
+        c9s_tweet_anatomy_moderator_badge_enabled: true,
         responsive_web_edit_tweet_api_enabled: true,
         graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
         view_counts_everywhere_api_enabled: true,
         longform_notetweets_consumption_enabled: true,
+        responsive_web_twitter_article_tweet_consumption_enabled: true,
+        tweet_awards_web_tipping_enabled: false,
         longform_notetweets_rich_text_read_enabled: true,
         longform_notetweets_inline_media_enabled: true,
+        rweb_video_timestamps_enabled: true,
+        responsive_web_graphql_exclude_directive_enabled: true,
+        verified_phone_label_enabled: false,
         freedom_of_speech_not_reach_fetch_enabled: true,
         standardized_nudges_misinfo: true,
         tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
+        responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
         responsive_web_enhance_cards_enabled: false,
-        creator_subscriptions_tweet_preview_api_enabled: true,
-        rweb_lists_timeline_redesign_enabled: true,
       },
       queryId: 'lBRHQaQKWQwF0eaGzH209w',
     }),
@@ -453,56 +460,78 @@ async function processAccount({ authToken, ct0, index }, wallet) {
     console.log(`${label} ✓ @${username} | Ref: ${refCode}`);
     await sleep(1000);
 
+    const tasks = me?.tasks || [];
+
     // 3. Follow — beneran follow @wikifork dulu, baru claim
-    console.log(`${label} ➤ follow @${FOLLOW_TARGET}...`);
-    const followUserId = await getUserId(authToken, ct0, FOLLOW_TARGET);
-    if (!followUserId) throw new Error(`Gagal dapat user ID @${FOLLOW_TARGET}`);
-    await followUser(authToken, ct0, followUserId);
-    await sleep(1000);
-    const rFollow = await forksTask(store, 'follow');
-    console.log(`${label} ${rFollow?.ok ? '✓' : '✗'} follow | reward: ${rFollow?.reward}`);
-    await sleep(TASK_DELAY);
+    if (isDone(tasks, 'follow')) {
+      console.log(`${label} ⏭ follow sudah selesai, skip`);
+    } else {
+      console.log(`${label} ➤ follow @${FOLLOW_TARGET}...`);
+      const followUserId = await getUserId(authToken, ct0, FOLLOW_TARGET);
+      if (!followUserId) throw new Error(`Gagal dapat user ID @${FOLLOW_TARGET}`);
+      await followUser(authToken, ct0, followUserId);
+      await sleep(1000);
+      const rFollow = await forksTask(store, 'follow');
+      console.log(`${label} ${rFollow?.ok ? '✓' : '✗'} follow | reward: ${rFollow?.reward}`);
+      await sleep(TASK_DELAY);
+    }
 
     // 4. Like
-    console.log(`${label} ➤ like...`);
-    const rLike = await forksTask(store, 'like');
-    console.log(`${label} ${rLike?.ok ? '✓' : '✗'} like | reward: ${rLike?.reward}`);
-    await sleep(TASK_DELAY);
+    if (isDone(tasks, 'like')) {
+      console.log(`${label} ⏭ like sudah selesai, skip`);
+    } else {
+      console.log(`${label} ➤ like...`);
+      const rLike = await forksTask(store, 'like');
+      console.log(`${label} ${rLike?.ok ? '✓' : '✗'} like | reward: ${rLike?.reward}`);
+      await sleep(TASK_DELAY);
+    }
 
     // 5. Repost
-    console.log(`${label} ➤ repost...`);
-    const rRepost = await forksTask(store, 'repost');
-    console.log(`${label} ${rRepost?.ok ? '✓' : '✗'} repost | reward: ${rRepost?.reward}`);
-    await sleep(TASK_DELAY);
+    if (isDone(tasks, 'repost')) {
+      console.log(`${label} ⏭ repost sudah selesai, skip`);
+    } else {
+      console.log(`${label} ➤ repost...`);
+      const rRepost = await forksTask(store, 'repost');
+      console.log(`${label} ${rRepost?.ok ? '✓' : '✗'} repost | reward: ${rRepost?.reward}`);
+      await sleep(TASK_DELAY);
+    }
 
     // 6. Comment — post reply beneran ke tweet wikifork, teks random
-    console.log(`${label} ➤ comment...`);
-    const replyTweetId = QUOTE_TWEET_URL.split('/status/')[1]?.split('?')[0];
-    const commentRes = await postTweet(authToken, ct0, randComment(), null, replyTweetId);
-    if (!commentRes.ok) {
-      console.log(`${label} ⚠ Comment tweet gagal: ${JSON.stringify(commentRes.raw?.errors || commentRes.raw)}`);
+    if (isDone(tasks, 'comment')) {
+      console.log(`${label} ⏭ comment sudah selesai, skip`);
     } else {
-      const commentUrl = `https://x.com/${username}/status/${commentRes.tweetId}`;
-      console.log(`${label} ✓ Commented: ${commentUrl}`);
-      const rComment = await forksTask(store, 'comment', commentUrl);
-      console.log(`${label} ${rComment?.ok ? '✓' : '✗'} comment | reward: ${rComment?.reward}`);
+      console.log(`${label} ➤ comment...`);
+      const replyTweetId = QUOTE_TWEET_URL.split('/status/')[1]?.split('?')[0];
+      const commentRes = await postTweet(authToken, ct0, randComment(), null, replyTweetId);
+      if (!commentRes.ok) {
+        console.log(`${label} ⚠ Comment tweet gagal: ${JSON.stringify(commentRes.raw?.errors || commentRes.raw)}`);
+      } else {
+        const commentUrl = `https://x.com/${username}/status/${commentRes.tweetId}`;
+        console.log(`${label} ✓ Commented: ${commentUrl}`);
+        const rComment = await forksTask(store, 'comment', commentUrl);
+        console.log(`${label} ${rComment?.ok ? '✓' : '✗'} comment | reward: ${rComment?.reward}`);
+      }
+      await sleep(TASK_DELAY);
     }
-    await sleep(TASK_DELAY);
 
     // 7. Quote tweet
-    console.log(`${label} ➤ quote tweet...`);
-    const quoteText = `my x forked into 15,000 $FORK\n\n$ git log --graph @${username}\n* x scan +9,000\n* trials +6,000\n\nwhere did yours come from?\nhttps://forks.wiki/r/${refCode} ${QUOTE_TWEET_URL}`;
-    const quoteTweetId = QUOTE_TWEET_URL.split('/status/')[1]?.split('?')[0];
-    const tweetRes = await postTweet(authToken, ct0, quoteText, quoteTweetId);
-    if (!tweetRes.ok) {
-      console.log(`${label} ⚠ Quote tweet gagal: ${JSON.stringify(tweetRes.raw?.errors || tweetRes.raw)}`);
+    if (isDone(tasks, 'quote')) {
+      console.log(`${label} ⏭ quote sudah selesai, skip`);
     } else {
-      const proofUrl = `https://x.com/${username}/status/${tweetRes.tweetId}`;
-      console.log(`${label} ✓ Quote tweeted: ${proofUrl}`);
-      const rQuote = await forksTask(store, 'quote', proofUrl);
-      console.log(`${label} ${rQuote?.ok ? '✓' : '✗'} quote | reward: ${rQuote?.reward}`);
+      console.log(`${label} ➤ quote tweet...`);
+      const quoteText = `my x forked into 15,000 $FORK\n\n$ git log --graph @${username}\n* x scan +9,000\n* trials +6,000\n\nwhere did yours come from?\nhttps://forks.wiki/r/${refCode} ${QUOTE_TWEET_URL}`;
+      const quoteTweetId = QUOTE_TWEET_URL.split('/status/')[1]?.split('?')[0];
+      const tweetRes = await postTweet(authToken, ct0, quoteText, quoteTweetId);
+      if (!tweetRes.ok) {
+        console.log(`${label} ⚠ Quote tweet gagal: ${JSON.stringify(tweetRes.raw?.errors || tweetRes.raw)}`);
+      } else {
+        const proofUrl = `https://x.com/${username}/status/${tweetRes.tweetId}`;
+        console.log(`${label} ✓ Quote tweeted: ${proofUrl}`);
+        const rQuote = await forksTask(store, 'quote', proofUrl);
+        console.log(`${label} ${rQuote?.ok ? '✓' : '✗'} quote | reward: ${rQuote?.reward}`);
+      }
+      await sleep(TASK_DELAY);
     }
-    await sleep(TASK_DELAY);
 
     // 8. Submit wallet
     if (wallet) {
