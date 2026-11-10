@@ -192,7 +192,6 @@ async function connectAccount({ authToken, ct0, index }) {
       || html.match(/auth_code=([^&"'\s]+)/)?.[1];
 
     if (!authCode) {
-      // GET auth_code dari X API pakai params dari authorizeUrl
       const urlObj2 = new URL(authorizeUrl);
       const apiParams = new URLSearchParams({
         response_type: urlObj2.searchParams.get('response_type') || 'code',
@@ -204,41 +203,44 @@ async function connectAccount({ authToken, ct0, index }) {
         code_challenge_method: urlObj2.searchParams.get('code_challenge_method') || '',
       });
 
-      const apiRes = await fetchFollow(
-        `https://x.com/i/api/oauth2/authorize?${apiParams}`,
-        {
-          followRedirects: false,
-          headers: {
-            'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
-            'Cookie': `auth_token=${authToken}; ct0=${ct0}`,
-            'Referer': authorizeUrl,
-            'Origin': 'https://x.com',
-            'X-Csrf-Token': ct0,
-            'X-Twitter-Auth-Type': 'OAuth2Session',
-            'X-Twitter-Active-User': 'yes',
-            'X-Twitter-Client-Language': 'en',
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
-            'Sec-Ch-Ua': '"Mises";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-            'Sec-Ch-Ua-Mobile': '?1',
-            'Sec-Ch-Ua-Platform': '"Android"',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-          }
-        },
-        store
-      );
+      const xHeaders = {
+        'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
+        'Cookie': `auth_token=${authToken}; ct0=${ct0}`,
+        'Referer': authorizeUrl,
+        'Origin': 'https://x.com',
+        'X-Csrf-Token': ct0,
+        'X-Twitter-Auth-Type': 'OAuth2Session',
+        'X-Twitter-Active-User': 'yes',
+        'X-Twitter-Client-Language': 'en',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+        'Sec-Ch-Ua': '"Mises";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+        'Sec-Ch-Ua-Mobile': '?1',
+        'Sec-Ch-Ua-Platform': '"Android"',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+      };
 
-      const apiText = await apiRes.text();
-      console.log(`${label} DEBUG api status: ${apiRes.status}`);
-      console.log(`${label} DEBUG api response: ${apiText.slice(0, 300)}`);
+      // Coba semua kemungkinan endpoint
+      const candidates = [
+        `https://x.com/i/api/2/oauth2/authorize?${apiParams}`,
+        `https://api.x.com/2/oauth2/authorize?${apiParams}`,
+        `https://x.com/i/api/oauth2/token?${apiParams}`,
+        `https://x.com/i/oauth2/authorize?${apiParams}`,
+      ];
 
       let apiJson = null;
-      try { apiJson = JSON.parse(apiText); } catch {}
-      authCode = apiJson?.auth_code;
+      for (const endpoint of candidates) {
+        const r = await fetchFollow(endpoint, { followRedirects: false, headers: xHeaders }, store);
+        const txt = await r.text();
+        console.log(`${label} DEBUG ${endpoint.split('?')[0]} → ${r.status}: ${txt.slice(0, 150)}`);
+        try { apiJson = JSON.parse(txt); } catch {}
+        if (apiJson?.auth_code) { authCode = apiJson.auth_code; break; }
+        apiJson = null;
+      }
 
       if (!authCode) {
-        throw new Error(`Gagal dapat auth_code (status ${apiRes.status}): ${apiText.slice(0, 200)}`);
+        throw new Error(`Semua endpoint gagal, cek DEBUG di atas`);
       }
     }
 
