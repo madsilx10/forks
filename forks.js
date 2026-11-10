@@ -221,6 +221,20 @@ async function connectAccount({ authToken, ct0, index }) {
       }
     }
 
+    // Debug: dump HTML biar keliatan X minta apa
+    const step2bHtml = await step2b.text();
+    const snippet = step2bHtml
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 800);
+    console.log(`${label} DEBUG step2b status=${step2b.status}`);
+    console.log(`${label} DEBUG HTML snippet:\n${snippet}\n`);
+    fs.writeFileSync(`debug_step2b_akun${index}.html`, step2bHtml);
+    console.log(`${label} Full HTML → debug_step2b_akun${index}.html`);
+
     throw new Error(`POST approve gagal: status ${step2b.status}`);
 
   } catch (err) {
@@ -285,9 +299,7 @@ async function main() {
   const pilihan = await rl('Pilihan (1/2/3): ');
 
   if (pilihan === '1') {
-    console.log('\nDaftar akun:');
-    accounts.forEach(a => console.log(`  ${a.index}. authtoken: ${a.authToken.slice(0, 10)}...`));
-    const nomor = await rl('\nNomor akun: ');
+    const nomor = await rl('Nomor akun: ');
     const akun = accounts.find(a => a.index === parseInt(nomor));
     if (!akun) { console.error('Nomor tidak valid'); process.exit(1); }
     await runAccounts([akun]);
@@ -296,9 +308,7 @@ async function main() {
     await runAccounts(accounts);
 
   } else if (pilihan === '3') {
-    console.log('\nDaftar akun:');
-    accounts.forEach(a => console.log(`  ${a.index}. authtoken: ${a.authToken.slice(0, 10)}...`));
-    const dari = await rl('\nFrom akun nomor: ');
+    const dari = await rl('From akun nomor: ');
     const startIdx = accounts.findIndex(a => a.index === parseInt(dari));
     if (startIdx === -1) { console.error('Nomor tidak valid'); process.exit(1); }
     await runAccounts(accounts.slice(startIdx));
