@@ -9,6 +9,7 @@ const DELAY_MS        = 4000;
 const TASK_DELAY      = 2000;
 const BEARER          = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
 const QUOTE_TWEET_URL = 'https://x.com/wikifork/status/2119827551610872004';
+const FOLLOW_TARGET   = 'wikifork';
 // ──────────────────────────────────────────────────────────
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -22,6 +23,7 @@ function randStatusId() {
   const rest = Array.from({ length: 18 }, () => Math.floor(Math.random() * 10)).join('');
   return '2' + rest;
 }
+
 
 function parseAkun() {
   const content = fs.readFileSync(AKUN_FILE, 'utf-8');
@@ -45,7 +47,6 @@ class CookieStore {
 
   set(domain, cookieStr) {
     if (!this.jar[domain]) this.jar[domain] = {};
-    // iterate semua parts (fix: versi lama cuma baca parts[0])
     cookieStr.split(';').forEach(part => {
       const kv = part.trim();
       const eq = kv.indexOf('=');
@@ -151,7 +152,6 @@ function forksHeaders(extra = {}) {
 
 // ─── CONNECT X ────────────────────────────────────────────
 async function connectX(authToken, ct0, label, store) {
-  // Step 1: get redirect ke X OAuth
   const s1 = await req(
     `https://forks.wiki/auth/x/start?return=%2F%3Fresume%3Dfreeforks&ref=${REF}`,
     {
@@ -169,7 +169,6 @@ async function connectX(authToken, ct0, label, store) {
   const authUrl = s1.headers.get('location');
   if (!authUrl?.includes('x.com')) throw new Error(`Step1 location aneh: ${authUrl}`);
 
-  // Step 2: GET authorize page di X (pakai browser headers, bukan API headers)
   const s2 = await req(
     authUrl,
     {
@@ -185,7 +184,6 @@ async function connectX(authToken, ct0, label, store) {
     store
   );
 
-  // Auto-approved (akun pernah connect sebelumnya)
   if (s2.status === 302) {
     const loc = s2.headers.get('location');
     if (loc?.includes('forks.wiki')) {
@@ -196,12 +194,10 @@ async function connectX(authToken, ct0, label, store) {
 
   if (s2.status !== 200) throw new Error(`Step2: dapat ${s2.status}`);
 
-  // Step 2b: Extract auth_code — coba dari HTML dulu
   const html = await s2.text();
   let authCode = html.match(/"auth_code"\s*:\s*"([^"]+)"/)?.[1]
     || html.match(/auth_code=([^&"'\s]+)/)?.[1];
 
-  // Kalau tidak ada di HTML, coba via API (4 endpoint fallback)
   if (!authCode) {
     const urlObj = new URL(authUrl);
     const apiParams = new URLSearchParams({
@@ -238,7 +234,6 @@ async function connectX(authToken, ct0, label, store) {
 
   if (!authCode) throw new Error('auth_code gagal dari semua endpoint');
 
-  // Step 2c: POST approve
   const approveRes = await req(
     'https://x.com/i/api/2/oauth2/authorize',
     {
@@ -317,8 +312,73 @@ async function forksWallet(store, wallet) {
   return r.json();
 }
 
+// ─── X API: GET USER ID ───────────────────────────────────
+async function getUserId(authToken, ct0, screenName) {
+  const variables = encodeURIComponent(JSON.stringify({
+    screen_name: screenName,
+    withSafetyModeUserFields: true,
+  }));
+  const features = encodeURIComponent(JSON.stringify({
+    responsive_web_graphql_exclude_directive_enabled: true,
+    verified_phone_label_enabled: false,
+    responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+    responsive_web_graphql_timeline_navigation_enabled: true,
+  }));
+  const r = await fetch(
+    `https://x.com/i/api/graphql/G3KGOASz96M-Qu0nwmGXNg/UserByScreenName?variables=${variables}&features=${features}`,
+    {
+      headers: xHeaders(authToken, ct0, {
+        'Referer': `https://x.com/${screenName}`,
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+      }),
+    }
+  );
+  const json = await r.json().catch(() => null);
+  return json?.data?.user?.result?.rest_id || null;
+}
+
+// ─── X API: FOLLOW USER ───────────────────────────────────
+async function followUser(authToken, ct0, userId) {
+  const r = await fetch('https://x.com/i/api/1.1/friendships/create.json', {
+    method: 'POST',
+    headers: xHeaders(authToken, ct0, {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Origin': 'https://x.com',
+      'Referer': 'https://x.com/',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'same-origin',
+    }),
+    body: new URLSearchParams({ user_id: userId, skip_status: 'true' }).toString(),
+  });
+  return r.json().catch(() => null);
+}
+
 // ─── X API: POST TWEET ────────────────────────────────────
-async function postTweet(authToken, ct0, text, quoteTweetId = null) {
+function randComment() {
+  const openers = ['gm', 'lfg', 'wagmi', 'anon', 'ser', 'fren', 'yo', 'ok'];
+  const middles = [
+    'just forked in 🍴',
+    'fork szn is here 🍴',
+    'fork or get forked',
+    'early fork is best fork',
+    'forking everything rn',
+    'my fork is loading…',
+    'fork meta is real',
+    'caught the fork wave',
+    'git commit -m "fork"',
+    'fork early fork often',
+    'fork game strong 💪',
+    'this fork hits diff',
+  ];
+  const closers = ['$FORK 🚀', '$FORK 🍴', '$FORK lfg', '$FORK 👀', '$FORK 🔥', '$FORK ser'];
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+  return `${pick(openers)} ${pick(middles)} ${pick(closers)}`;
+}
+
+async function postTweet(authToken, ct0, text, quoteTweetId = null, replyToTweetId = null) {
   const variables = {
     tweet_text: text,
     dark_request: false,
@@ -326,8 +386,12 @@ async function postTweet(authToken, ct0, text, quoteTweetId = null) {
     semantic_annotation_ids: [],
   };
   if (quoteTweetId) variables.quote_tweet_id = quoteTweetId;
+  if (replyToTweetId) variables.reply = {
+    in_reply_to_tweet_id: replyToTweetId,
+    exclude_reply_user_ids: [],
+  };
 
-  const r = await fetch('https://x.com/i/api/graphql/SoVnbfCycZ7fERGCwpZkYA/CreateTweet', {
+  const r = await fetch('https://x.com/i/api/graphql/lBRHQaQKWQwF0eaGzH209w/CreateTweet', {
     method: 'POST',
     headers: xHeaders(authToken, ct0, {
       'Content-Type': 'application/json',
@@ -340,30 +404,25 @@ async function postTweet(authToken, ct0, text, quoteTweetId = null) {
     body: JSON.stringify({
       variables,
       features: {
-        interactive_text_enabled: true,
-        longform_notetweets_inline_media_enabled: false,
-        responsive_web_text_conversations_enabled: false,
-        tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: false,
-        vibe_api_enabled: false,
-        rweb_lists_timeline_redesign_enabled: true,
         responsive_web_graphql_exclude_directive_enabled: true,
         verified_phone_label_enabled: false,
-        creator_subscriptions_tweet_preview_api_enabled: true,
-        responsive_web_graphql_timeline_navigation_enabled: true,
         responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+        responsive_web_graphql_timeline_navigation_enabled: true,
         tweetypie_unmention_optimization_enabled: true,
         responsive_web_edit_tweet_api_enabled: true,
         graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
         view_counts_everywhere_api_enabled: true,
         longform_notetweets_consumption_enabled: true,
-        tweet_awards_web_tipping_enabled: false,
-        freedom_of_speech_not_reach_fetch_enabled: true,
-        standardized_nudges_misinfo: true,
         longform_notetweets_rich_text_read_enabled: true,
         longform_notetweets_inline_media_enabled: true,
+        freedom_of_speech_not_reach_fetch_enabled: true,
+        standardized_nudges_misinfo: true,
+        tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
         responsive_web_enhance_cards_enabled: false,
+        creator_subscriptions_tweet_preview_api_enabled: true,
+        rweb_lists_timeline_redesign_enabled: true,
       },
-      queryId: 'SoVnbfCycZ7fERGCwpZkYA',
+      queryId: 'lBRHQaQKWQwF0eaGzH209w',
     }),
   });
 
@@ -394,8 +453,12 @@ async function processAccount({ authToken, ct0, index }, wallet) {
     console.log(`${label} ✓ @${username} | Ref: ${refCode}`);
     await sleep(1000);
 
-    // 3. Follow
-    console.log(`${label} ➤ follow...`);
+    // 3. Follow — beneran follow @wikifork dulu, baru claim
+    console.log(`${label} ➤ follow @${FOLLOW_TARGET}...`);
+    const followUserId = await getUserId(authToken, ct0, FOLLOW_TARGET);
+    if (!followUserId) throw new Error(`Gagal dapat user ID @${FOLLOW_TARGET}`);
+    await followUser(authToken, ct0, followUserId);
+    await sleep(1000);
     const rFollow = await forksTask(store, 'follow');
     console.log(`${label} ${rFollow?.ok ? '✓' : '✗'} follow | reward: ${rFollow?.reward}`);
     await sleep(TASK_DELAY);
@@ -412,12 +475,18 @@ async function processAccount({ authToken, ct0, index }, wallet) {
     console.log(`${label} ${rRepost?.ok ? '✓' : '✗'} repost | reward: ${rRepost?.reward}`);
     await sleep(TASK_DELAY);
 
-    // 6. Comment
+    // 6. Comment — post reply beneran ke tweet wikifork, teks random
     console.log(`${label} ➤ comment...`);
-    const commentStatusId = randStatusId();
-    const commentUrl = `https://x.com/${username}/status/${commentStatusId}`;
-    const rComment = await forksTask(store, 'comment', commentUrl);
-    console.log(`${label} ${rComment?.ok ? '✓' : '✗'} comment | reward: ${rComment?.reward}`);
+    const replyTweetId = QUOTE_TWEET_URL.split('/status/')[1]?.split('?')[0];
+    const commentRes = await postTweet(authToken, ct0, randComment(), null, replyTweetId);
+    if (!commentRes.ok) {
+      console.log(`${label} ⚠ Comment tweet gagal: ${JSON.stringify(commentRes.raw?.errors || commentRes.raw)}`);
+    } else {
+      const commentUrl = `https://x.com/${username}/status/${commentRes.tweetId}`;
+      console.log(`${label} ✓ Commented: ${commentUrl}`);
+      const rComment = await forksTask(store, 'comment', commentUrl);
+      console.log(`${label} ${rComment?.ok ? '✓' : '✗'} comment | reward: ${rComment?.reward}`);
+    }
     await sleep(TASK_DELAY);
 
     // 7. Quote tweet
