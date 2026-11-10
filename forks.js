@@ -171,6 +171,14 @@ async function connectAccount({ authToken, ct0, index }) {
 
     const html = await step2.text();
 
+    // Extract endpoint hints dari HTML/JS
+    const endpoints = [...html.matchAll(/["'](\/i\/api\/[^"']+oauth[^"']+)["']/g)].map(m => m[1]);
+    const authCodes = [...html.matchAll(/["']auth_code["']\s*:\s*["']([^"']+)["']/g)].map(m => m[1]);
+    const redirects = [...html.matchAll(/["']redirect_uri["']\s*:\s*["']([^"']+)["']/g)].map(m => m[1]);
+    console.log(`${label} DEBUG endpoints:`, [...new Set(endpoints)]);
+    console.log(`${label} DEBUG auth_codes:`, authCodes);
+    console.log(`${label} DEBUG redirects:`, redirects);
+
     // ── STEP 2b: Ambil auth_code via X internal API ───────
     console.log(`${label} Step 2b: Approve via X API...`);
     const urlObj = new URL(authorizeUrl);
